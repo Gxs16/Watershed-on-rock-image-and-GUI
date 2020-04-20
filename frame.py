@@ -6,7 +6,7 @@
 此代码主要完成GUI界面的搭建工作
 
 作者：郭欣晟
-最后编辑日期：2020年4月13日
+最后编辑日期：2020-4-20
 '''
 import sys
 from PyQt5 import QtWidgets, QtCore, QtGui
@@ -14,10 +14,7 @@ from PyQt5.QtGui import *
 from PyQt5.QtWidgets import *
 from PyQt5.QtCore import *
 
-import matplotlib.pyplot as plt
-import numpy as np
-from scipy import ndimage as ndi
-from skimage import morphology, color, data, filters, io, feature, exposure
+from segmentation import watershed
 
 class ImgSegmentation(QMainWindow):
     '''
@@ -25,7 +22,7 @@ class ImgSegmentation(QMainWindow):
     '''
     def __init__(self):
         super().__init__()
-
+        self.filepath = ''
         self.init_ui()
 
 
@@ -44,21 +41,20 @@ class ImgSegmentation(QMainWindow):
         self.setWindowTitle('图像分割')#设置窗口标题
 
         #设置菜单栏
-        openAct = QAction('打开图片', self)
-        openAct.setShortcut('Ctrl+O')
-        openAct.setStatusTip('打开图片')
-        openAct.triggered.connect(self.openimage)
-        filepath = ''
+        open_act = QAction('打开图片', self)
+        open_act.setShortcut('Ctrl+O')
+        open_act.setStatusTip('打开图片')
+        open_act.triggered.connect(self.openimage)
 
-        exitAct = QAction('退出', self)
-        exitAct.setShortcut('Ctrl+Q')
-        exitAct.setStatusTip('退出应用程序')
-        exitAct.triggered.connect(self.close)
+        exit_act = QAction('退出', self)
+        exit_act.setShortcut('Ctrl+Q')
+        exit_act.setStatusTip('退出应用程序')
+        exit_act.triggered.connect(self.close)
 
         menubar = self.menuBar()
-        fileMenu = menubar.addMenu('文件')
-        fileMenu.addAction(openAct)
-        fileMenu.addAction(exitAct)
+        file_menu = menubar.addMenu('文件')
+        file_menu.addAction(open_act)
+        file_menu.addAction(exit_act)
 
         #设置状态栏
         self.statusBar().showMessage('请选择图片')
@@ -74,12 +70,12 @@ class ImgSegmentation(QMainWindow):
         self.lbl_median.move(1040, 50)
         self.lbl_median.adjustSize()
 
-        pIntvalidator_median = QIntValidator(self)
-        pIntvalidator_median.setRange(1, 30)
+        intvalidator_median = QIntValidator(self)
+        intvalidator_median.setRange(1, 30)
         self.qle_median = QLineEdit(self)
         self.qle_median.move(1040, 100)
         self.qle_median.setText('7')
-        self.qle_median.setValidator(pIntvalidator_median)
+        self.qle_median.setValidator(intvalidator_median)
 
         #设置图像阈值分割参数选择区域
         self.local_th = QCheckBox('局部阈值选取', self)
@@ -91,23 +87,23 @@ class ImgSegmentation(QMainWindow):
         self.lbl_thresh.setText('局部阈值分割核半径：')
         self.lbl_thresh.move(1040, 250)
         self.lbl_thresh.adjustSize()
-        pIntvalidator_thresh = QIntValidator(self)
-        pIntvalidator_thresh.setRange(1, 2000)
+        intvalidator_thresh = QIntValidator(self)
+        intvalidator_thresh.setRange(1, 2000)
         self.qle_thresh = QLineEdit(self)
         self.qle_thresh.move(1040, 300)
         self.qle_thresh.setText('501')
-        self.qle_thresh.setValidator(pIntvalidator_thresh)
+        self.qle_thresh.setValidator(intvalidator_thresh)
 
         self.lbl_setoff = QLabel(self)
         self.lbl_setoff.setText('偏移量：')
         self.lbl_setoff.move(1040, 350)
         self.lbl_setoff.adjustSize()
-        pIntvalidator_setoff = QIntValidator(self)
-        pIntvalidator_setoff.setRange(0, 255)
+        intvalidator_setoff = QIntValidator(self)
+        intvalidator_setoff.setRange(0, 255)
         self.qle_setoff = QLineEdit(self)
         self.qle_setoff.move(1040, 400)
         self.qle_setoff.setText('30')
-        self.qle_setoff.setValidator(pIntvalidator_setoff)
+        self.qle_setoff.setValidator(intvalidator_setoff)
 
         self.local_th.stateChanged.connect(self.change_thresh)
         self.local_th.setChecked(False)
@@ -116,24 +112,24 @@ class ImgSegmentation(QMainWindow):
         self.lbl_erosion.setText('形态学侵蚀迭代次数：')
         self.lbl_erosion.move(1040, 450)
         self.lbl_erosion.adjustSize()
-        pIntvalidator_erosion = QIntValidator(self)
-        pIntvalidator_erosion.setRange(0, 25)
+        intvalidator_erosion = QIntValidator(self)
+        intvalidator_erosion.setRange(0, 25)
         self.qle_erosion = QLineEdit(self)
         self.qle_erosion.move(1040, 500)
         self.qle_erosion.setText('10')
-        self.qle_erosion.setValidator(pIntvalidator_erosion)
+        self.qle_erosion.setValidator(intvalidator_erosion)
 
         #设置梯度运算核半径
         self.lbl_gradient = QLabel(self)
         self.lbl_gradient.setText('梯度运算核半径：')
         self.lbl_gradient.move(1040, 550)
         self.lbl_gradient.adjustSize()
-        pIntvalidator_gradient = QIntValidator(self)
-        pIntvalidator_gradient.setRange(0, 10)
+        intvalidator_gradient = QIntValidator(self)
+        intvalidator_gradient.setRange(0, 10)
         self.qle_gradient = QLineEdit(self)
         self.qle_gradient.move(1040, 600)
         self.qle_gradient.setText('5')
-        self.qle_gradient.setValidator(pIntvalidator_gradient)
+        self.qle_gradient.setValidator(intvalidator_gradient)
 
         #设置开始运算按钮
         self.startbtn = QPushButton('开始分割', self)
@@ -152,11 +148,11 @@ class ImgSegmentation(QMainWindow):
         '''
         #打开图片
         self.statusBar().showMessage('打开图片')
-        imgName, imgType = QFileDialog.getOpenFileName(self, "打开图片", \
-                                                       "", "*.jpg;;*.png;;All Files(*)")
-        jpg = QtGui.QPixmap(imgName).scaled(self.label.width(), \
-                                            self.label.height(), Qt.KeepAspectRatio)
-        self.filepath = imgName
+        img_name_o, img_type = QFileDialog.getOpenFileName(self, "打开图片", \
+                                                           "", "*.jpg;;*.png;;All Files(*)")
+        jpg = QtGui.QPixmap(img_name_o).scaled(self.label.width(),\
+                                               self.label.height(), Qt.KeepAspectRatio)
+        self.filepath = img_name_o
         self.label.setPixmap(jpg)
         self.statusBar().showMessage('请调整右侧参数')
 
@@ -178,64 +174,23 @@ class ImgSegmentation(QMainWindow):
         #状态栏提示
         self.statusBar().showMessage('正在分割')
 
-        #读取图像
-        img = io.imread(self.filepath)
-
-        #图像二值化
-        image = color.rgb2gray(img)
-
-        #图像直方图均衡
-        img_c = exposure.equalize_hist(image)
-
-        #过滤噪声
-        denoised = filters.rank.median(img_c, morphology.disk(int(self.qle_median.text())))
-
-        #阈值选取
-        if self.local_th.isChecked() == True:
-            thresh = filters.threshold_local(denoised, block_size=int(self.qle_thresh.text()), \
-                                             offset=int(self.qle_setoff.text()))
-        else:
-            thresh = filters.threshold_li(denoised)
-        #阈值分割
-        binary = denoised > thresh
-
-        #形态学侵蚀
-        for i in range(int(self.qle_erosion.text())):
-            binary = morphology.binary_erosion(binary)
-
-        #连通区域标记
-        classes = ndi.label(binary)[0]
-
-        #计算图像梯度
-        gradient = filters.rank.gradient(denoised, morphology.disk(int(self.qle_gradient.text())))
-        gradient_inv = gradient.max() - gradient
-
-        #寻找梯度最小值
-        local_min = feature.peak_local_max(gradient_inv, indices=False, min_distance=35, \
-                                           num_peaks_per_label=1, labels=classes)
-        gradient_selected = np.ones(np.shape(image)) * gradient.max()
-        gradient_selected[local_min == True] = gradient[local_min == True]
-
-        #标记注水点
-        markers = ndi.label(local_min)[0]
-
-        #基于梯度的分水岭算法
-        labels = morphology.watershed(gradient, markers, watershed_line=True, compactness=0)
-
-        #保存图像
+        #判断文件输出格式
         if self.filepath[-3:] == 'png':
-            img[labels == 0] = [255, 0, 0, 255]
-            img[markers != 0] = [0, 255, 0, 255]
+            img_name_s, img_type = QFileDialog.getSaveFileName(self, "保存图片", "",\
+                                                               "*.png")
         else:
-            img[labels == 0] = [255, 0, 0]
-            img[markers != 0] = [0, 255, 0]
-        imgName_s, imgType = QFileDialog.getSaveFileName(self, "保存图片", \
-                                                          "", "*.jpg;;*.png;;All Files(*)")
-        io.imsave(imgName_s, img)
+            img_name_s, img_type = QFileDialog.getSaveFileName(self, "保存图片", "",\
+                                                               "*.jpg")
+
+        #执行分水岭算法
+        watershed(self.filepath, self.qle_median.text(),\
+                  self.local_th.isChecked(), self.qle_thresh.text(),\
+                  self.qle_setoff.text(), self.qle_erosion.text(),\
+                  self.qle_gradient.text(), img_name_s)
 
         #图像显示
-        jpg = QtGui.QPixmap(imgName_s).scaled(self.label.width(), \
-                                              self.label.height(), Qt.KeepAspectRatio)
+        jpg = QtGui.QPixmap(img_name_s).scaled(self.label.width(), \
+                                               self.label.height(), Qt.KeepAspectRatio)
         self.label.setPixmap(jpg)
         #更改状态栏
         self.statusBar().showMessage('已完成！')
